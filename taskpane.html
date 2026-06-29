@@ -1,12 +1,147 @@
 <!DOCTYPE html>
-  <html lang="fr">
-  <head>
+<html lang="fr">
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Complete Brief - Taskpane</title>
-  </head>
-  <body>
-  <h1>Complete Brief</h1>
-  <p>Page de test pour la preparation du brief ERP.</p>
-  </body>
-  </html>
+  <title>Assistant Devis</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; margin: 12px; font-size: 14px; color: #222; }
+    h3 { margin: 14px 0 6px; font-size: 13px; }
+    button { background:#0067b8; color:#fff; border:none; padding:10px 14px; border-radius:4px; cursor:pointer; font-size:14px; }
+    button:hover { background:#005299; }
+    button.green { background:#107c10; }
+    button.green:hover { background:#0b5a0b; }
+    textarea { width:100%; height:220px; margin-top:8px; font-family:inherit; font-size:13px; padding:8px; box-sizing:border-box; }
+    .hint { color:#666; font-size:12px; margin-bottom:10px; }
+    .panel { background:#f3f3f3; border-radius:4px; padding:8px 10px; margin-top:10px; font-size:13px; }
+    .ok { color:#107c10; }
+    .miss { color:#b80000; }
+    .panel ul { margin:4px 0 0; padding-left:18px; }
+    .panel li { margin:2px 0; }
+    .titres { font-weight:600; }
+  </style>
+</head>
+<body>
+  <div class="hint">Ouvrez une demande client, puis cliquez ci-dessous.</div>
+  <button id="go">Préparer la réponse</button>
+  <div id="apercu" class="panel" style="display:none;">
+    <div class="titres" id="titres"></div>
+    <h3 class="ok">Éléments détectés</h3>
+    <ul id="listeOk"></ul>
+    <h3 class="miss">Informations manquantes</h3>
+    <ul id="listeMiss"></ul>
+  </div>
+  <textarea id="out" placeholder="La réponse générée s'affichera ici, modifiable avant insertion."></textarea>
+  <button id="insert" class="green" style="margin-top:8px;">Insérer dans une réponse</button>
+  <script>
+    const CHECKS = {
+      "le format fini (ex. 150 x 210 mm)": [
+        /\b\d{2,3}\s*[x×]\s*\d{2,3}\b/i,
+        /format\s*(fini|ouvert)?/i
+      ],
+      "le façonnage (dos carré collé, piqûre métal, cartonné, intégra…)": [
+        /dos\s*carr[ée]/i, /piq[uû]re/i, /cartonn[ée]/i, /int[ée]gra/i,
+        /reliure|reli[ée]|cousu|collé|p\.?u\.?r/i, /fa[çc]onn/i
+      ],
+      "le tirage / la quantité par titre": [
+        /\b\d[\d\s.,]{1,7}\s*(ex\b|exemplaires|ex\.)/i,
+        /tirage\b/i, /quantit[ée]/i, /\bqt[ée]\b/i
+      ],
+      "le nombre de pages de l'intérieur": [
+        /\b\d{1,4}\s*pages?\b/i, /\bpagination\b/i
+      ],
+      "le papier et le grammage de l'intérieur": [
+        /\b\d{2,3}\s*g(r|ramme?s?)?\b/i,
+        /couch[ée]|offset|bouffant|cr[èe]me|ivoire|avec bois|sans bois/i
+      ],
+      "l'impression intérieure (quadri, noir seul, bichromie, pantone…)": [
+        /quadri/i, /\bnoir\b/i, /bichromie/i, /pantone/i, /recto.?verso/i,
+        /\bn&b\b|noir et blanc/i
+      ],
+      "la couverture (papier, grammage et finitions)": [
+        /couv(erture)?/i, /pellicul/i, /vernis/i,
+        /soft\s*touch/i, /embossage|d[ée]bossage|marquage|coins ronds|jaspage/i,
+        /carte couch[ée]e?/i
+      ]
+    };
+
+    function analyse(text) {
+      const raw = text || "";
+      const t = raw.toLowerCase();
+      const titres = [];
+      raw.split(/\r?\n/).forEach(l => {
+        const m = l.match(/^\s*[-•*]\s*(.+)/);
+        if (m && m[1].trim().length > 3) titres.push(m[1].trim());
+      });
+      const presents = [];
+      const manques = [];
+      for (const [label, patterns] of Object.entries(CHECKS)) {
+        const found = patterns.some(p => p.test(t));
+        (found ? presents : manques).push(label);
+      }
+      return { titres, presents, manques };
+    }
+
+    function genererEmail({ titres, manques }) {
+      const listeTitres = titres.length
+        ? titres.map(x => "« " + x + " »").join(", ")
+        : "votre demande";
+      let c = "Bonjour,\n\n";
+      c += "Merci pour votre demande concernant " + listeTitres + ". ";
+      c += "Afin de vous établir un devis précis";
+      if (titres.length > 1) c += ", pour chaque titre,";
+      c += " pourriez-vous nous communiquer les informations complémentaires suivantes :\n\n";
+      if (manques.length) {
+        manques.forEach(m => {
+          c += "  • " + m.charAt(0).toUpperCase() + m.slice(1) + ".\n";
+        });
+      } else {
+        c += "  • Votre demande nous semble complète ; merci simplement de nous confirmer les éléments transmis.\n";
+      }
+      c += "\nS'il s'agit d'une réimpression à l'identique d'un tirage déjà réalisé avec nous, ";
+      c += "indiquez-nous simplement la référence du dossier d'origine : ";
+      c += "nous reprendrons les caractéristiques correspondantes.\n\n";
+      c += "Dès réception de ces éléments, nous reviendrons vers vous rapidement avec notre proposition.\n\n";
+      c += "Bien cordialement,";
+      return c;
+    }
+
+    function liste(el, items, vide) {
+      el.innerHTML = "";
+      if (!items.length) { el.innerHTML = "<li><em>" + vide + "</em></li>"; return; }
+      items.forEach(x => {
+        const li = document.createElement("li");
+        li.textContent = x;
+        el.appendChild(li);
+      });
+    }
+
+    Office.onReady(() => {
+      document.getElementById("go").onclick = () => {
+        Office.context.mailbox.item.body.getAsync("text", (res) => {
+          if (res.status !== Office.AsyncResultStatus.Succeeded) {
+            document.getElementById("out").value = "Erreur de lecture du message.";
+            return;
+          }
+          const data = analyse(res.value);
+          document.getElementById("apercu").style.display = "block";
+          document.getElementById("titres").textContent =
+            data.titres.length
+              ? (data.titres.length + " titre(s) détecté(s) : " + data.titres.join(" ; "))
+              : "Aucun titre détecté (pensez à utiliser des puces « - » dans le mail).";
+          liste(document.getElementById("listeOk"), data.presents, "Aucun élément détecté.");
+          liste(document.getElementById("listeMiss"), data.manques, "Rien ne manque !");
+          document.getElementById("out").value = genererEmail(data);
+        });
+      };
+
+      document.getElementById("insert").onclick = () => {
+        const txt = document.getElementById("out").value;
+        if (!txt.trim()) return;
+        Office.context.mailbox.item.displayReplyForm(txt.replace(/\n/g, "<br>"));
+      };
+    });
+  </script>
+</body>
+</html>
